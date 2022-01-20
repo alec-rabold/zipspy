@@ -1,12 +1,18 @@
 package main
 
-import "github.com/alec-rabold/zipspy/cmd"
+import (
+	"github.com/alec-rabold/zipspy/cmd"
+	"github.com/spf13/cobra"
+)
 
 var (
-	// VERSION is set during build
-	VERSION = "0.0.1"
+	// Version is the git version of the code.
+	// It is set during build time through the Makefile.
+	Version = "unknown"
 )
 
 func main() {
-	cmd.Execute(VERSION)
+	c := cmd.Root()
+	c.Version = Version
+	cobra.CheckErr(c.Execute())
 }

@@ -1,10 +1,13 @@
+// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package reader
 
 import (
 	"compress/flate"
 	"errors"
 	"io"
-	"io/ioutil"
 	"sync"
 )
 
@@ -104,7 +107,10 @@ var (
 )
 
 func init() {
-	decompressors.Store(Store, Decompressor(ioutil.NopCloser))
+	compressors.Store(Store, Compressor(func(w io.Writer) (io.WriteCloser, error) { return &nopCloser{w}, nil }))
+	compressors.Store(Deflate, Compressor(func(w io.Writer) (io.WriteCloser, error) { return newFlateWriter(w), nil }))
+
+	decompressors.Store(Store, Decompressor(io.NopCloser))
 	decompressors.Store(Deflate, Decompressor(newFlateReader))
 }
 

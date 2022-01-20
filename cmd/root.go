@@ -2,81 +2,97 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
-	homedir "github.com/mitchellh/go-homedir"
+	// "github.com/alec-rabold/zipspy/pkg/provider/aws/s3"
+	"github.com/alec-rabold/zipspy/pkg/provider/aws/s3"
+	"github.com/alec-rabold/zipspy/pkg/provider/local"
+	"github.com/alec-rabold/zipspy/pkg/zipspy"
+	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-var (
-	// VERSION is set during build
-	VERSION string
-)
+var cfg config
 
-var cfgFile string
-
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "zipspy",
-	Short: "CLI tool to extract files from zip archives in S3 without needing to download the entire archive",
-	Long: `
-The zipspy CLI allows you to download specific files and/or directories from zip archives 
-in S3 without having to download the entire object.. 
-	
-example:
-
-zipspy extract -b myBucket -k myKey -f plan.txt
-zipspy extract -b myBucket -k myKey -f plan.txt -o my-plan.txt
-zipspy extract -b myBucket -k myKey -f plan1.txt, plan2.txt, path/to/plan3.txt, /directory`,
+type config struct {
+	development     bool
+	archiveLocation string
+	provider        zipspy.Reader
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-func Execute(version string) {
-	VERSION = version
+// Root returns the cobra.Command containing all child commands and sets global flags.
+func Root() *cobra.Command {
+	var verbosity string
+	cmd := &cobra.Command{
+		Use:   "zipspy",
+		Short: "Interface with remote ZIP archives",
+		Long: `                       
+ ____  __  ____  ____  ____  _  _ 
+(__  )(  )(  _ \/ ___)(  _ \( \/ )
+ / _/  )(  ) __/\___ \ ) __/ )  / 
+(____)(__)(__)  (____/(__)  (__/    
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+Zipspy allows you interact with ZIP archives stored in remote locations without
+requiring a local copy. For example, you can list the filenames in an S3 ZIP archive, 
+download a subset of files, search and retrieve files with regular expressions, and more!`,
 	}
-}
-
-func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.zipspy.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-}
-
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if err := cfg.initProvider(); err != nil {
+			return fmt.Errorf("failed to initialize provider: %v", err)
 		}
-
-		// Search config in home directory with name ".zipspy" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".zipspy")
+		if err := setupLogger(verbosity); err != nil {
+			return fmt.Errorf("failed to initialize logger: %v", err)
+		}
+		return nil
 	}
+	cmd.PersistentFlags().BoolVar(&cfg.development, "development", false, "Whether or not to use development settings")
+	cmd.PersistentFlags().StringVar(&cfg.archiveLocation, "location", "", `Protocol and address of your ZIP archive ("file://archive.zip", "s3://<bucket_name>/archive.zip")`)
+	cmd.LocalFlags().StringVar(&verbosity, "verbosity", logrus.WarnLevel.String(), "Global log level (trace, debug, info, warn, error, fatal, panic")
+	must(cmd.MarkPersistentFlagRequired("location"))
 
-	viper.AutomaticEnv() // read in environment variables that match
+	cmd.AddCommand(Extract())
 
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	return cmd
+}
+
+func (c *config) initProvider() error {
+	if cfg.archiveLocation == "" {
+		return fmt.Errorf("location must not be empty")
+	}
+	switch {
+	case strings.HasPrefix(cfg.archiveLocation, "s3://"):
+		endpoint, err := url.Parse(c.archiveLocation)
+		if err != nil {
+			return fmt.Errorf("failed to parse S3 URI: %w", err)
+		}
+		c.provider = s3.NewClient(endpoint.Host, endpoint.Path)
+	case strings.HasPrefix(cfg.archiveLocation, "file://"):
+		filepath := strings.TrimPrefix(cfg.archiveLocation, "file://")
+		c.provider = local.NewClient(filepath)
+	default:
+		return fmt.Errorf("unsupported provider for location %s", cfg.archiveLocation)
+	}
+	return nil
+}
+
+func setupLogger(verbosity string) error {
+	log.SetOutput(os.Stdout)
+	level, err := logrus.ParseLevel(verbosity)
+	if err != nil {
+		return err
+	}
+	log.SetLevel(level)
+	if cfg.development && level < log.DebugLevel {
+		log.SetLevel(log.DebugLevel)
+	}
+	return nil
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
 	}
 }

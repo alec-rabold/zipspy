@@ -1,103 +1,162 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
-	"github.com/alec-rabold/zipspy/pkg/zipfile"
+	"github.com/alec-rabold/zipspy/pkg/reader"
+	"github.com/alec-rabold/zipspy/pkg/zipspy"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-var files, outFiles []string
-var bucket, key, outFile string
+func Extract() *cobra.Command {
+	var all bool
+	var inFiles, outFiles []string
+	cmd := &cobra.Command{
+		Use:   "extract -file f1.txt [--out out.txt] [--separator \"\\n---\\n\"]",
+		Short: "Extract one or more files from the zip archive.",
+		Long: `Downloads the specified files from the base zip archive.
 
-var extractCmd = &cobra.Command{
-	Use:   "extract",
-	Short: "Extract one or more files from  S3 zip archive",
-	Long: `Downloads range(s) of bytes from S3 zip archive
-	containing the compressed file(s), the decompresses the data.
-	
-	ex: 
-	zipspy extract -b myBucket -k myKey -f plan.txt
-	zipspy extract -b myBucket -k myKey -f plan.txt -o my/directory/plan.txt
-	zipspy extract -b myBucket -k myKey -f plan1.txt, plan2.txt, path/to/plan3.txt, /directory
-	zipspy extract -b myBucket -k myKey -f plan1.txt -o plan1.txt -f plan2.txt -o plan2.txt`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(files) == 0 || bucket == "" || key == "" {
-			cmd.Usage()
-			os.Exit(1)
-		}
-		if len(outFiles) > 1 && (len(outFiles) != len(files)) {
-			cmd.Usage()
-			log.Error("error: must specify one output file for every search term")
-			os.Exit(1)
-		}
-		z := zipfile.NewFileExtractor(bucket, key)
-		records, err := z.ExtractFiles(files)
-		if err != nil {
-			log.Errorf("error extracting files from archive, err: %v", err)
-			return err
-		}
-		if len(outFiles) == 0 {
-			for _, v := range records.FileMap {
-				for _, f := range v {
-					fmt.Println(f.Contents.String())
-				}
+Use the "--file/-f" flag to extract one or more files:
+
+	zipspy extract --location file://archive.zip --file myfile.txt 
+	zipspy extract --location file://archive.zip -f file1.txt -f file2.txt -file3.txt 
+
+By default, the contents will be written to stdout.
+If you wish to separate multiple files' contents, use the "--separator" flag:
+
+	zipspy extract --location file://archive.zip -f file1.txt -f file2.txt --separator "\n---\n" 
+
+You may optionally include the "--out/-o" flag to write the contents to a file instead:
+
+	zipspy extract --location file://archive.zip -f myfile.txt --out destination.txt
+	zipspy extract --location file://archive.zip -f file1.txt -f file2.txt -o destination.txt --separator "\n---\n"
+
+If you specify more than one output, each file will be writen to the corresponding desination:
+
+	zipspy extract --location file://archive.zip -f file1.txt -o dest1.txt -f file2.txt -o dest2.txt -f file3.txt -o dest3.txt
+`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			cmd.Parent().PersistentPreRunE(cmd.Parent(), args)
+			if err := validateExtractCommand(cmd); err != nil {
+				cmd.Usage()
+				return fmt.Errorf("validation failed: %w", err)
 			}
-		} else if len(outFiles) == 1 {
-			f, err := os.OpenFile(outFiles[0], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			zip, err := zipspy.NewClient(cfg.provider)
 			if err != nil {
-				log.Errorf("error opening file (name: %s), err: %v", outFiles[0], err)
-				return err
+				return fmt.Errorf("failed to create zipspy client: %v", err)
 			}
-			defer func() {
-				if err := f.Close(); err != nil {
-					log.Errorf("error closing file (name: %s), err: %v", outFiles[0], err)
-					panic(err)
+
+			files := getFiles(cmd, zip)
+			if len(inFiles) != 0 && len(inFiles) != len(files) {
+				if len(outFiles) > 1 {
+					return fmt.Errorf("number of input files must match number of found files in order to write to multiple files (input: %d) (found: %d)", len(inFiles), len(files))
 				}
-			}()
-			for _, files := range records.FileMap {
-				for _, file := range files {
-					if _, err := f.Write(file.Contents.Bytes()); err != nil {
-						log.Errorf("error writing to file (name: %s), err: %v", outFiles[0], err)
-						panic(err)
-					}
-				}
+				log.Warnf("number of input files does not match number of found files (input: %d) (found: %d)", len(inFiles), len(files))
 			}
-		} else if len(outFiles) > 1 {
-			outputMap := make(map[string]string) // searchTerm -> outputFile
-			for i := range outFiles {
-				outputMap[files[i]] = outFiles[i]
-			}
-			for searchTerm, files := range records.FileMap {
-				f, err := os.OpenFile(outputMap[searchTerm], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+			outFile := os.Stdout
+			if len(outFiles) == 1 {
+				outFile, err = os.OpenFile(outFiles[0], os.O_CREATE|os.O_WRONLY, 0644)
 				if err != nil {
-					log.Errorf("error opening file (name: %s), err: %v", outFiles[0], err)
-					return err
-				}
-				defer func() {
-					if err := f.Close(); err != nil {
-						log.Errorf("error closing file (name: %s), err: %v", outFiles[0], err)
-						panic(err)
-					}
-				}()
-				for _, file := range files {
-					if _, err := f.Write(file.Contents.Bytes()); err != nil {
-						log.Errorf("error writing to file (name: %s), err: %v", outFiles[0], err)
-						panic(err)
-					}
+					return fmt.Errorf("failed to open file (name: %s): %w", outFiles[0], err)
 				}
 			}
-		}
-		return nil
-	},
+			defer outFile.Close()
+			// TODO: parallelize with variable number of workers here
+			for idx, file := range files {
+				// Kind of hacky, but skip if directory
+				if strings.HasSuffix(file.Name, "/") {
+					continue
+				}
+				rc, err := file.Open()
+				if err != nil {
+					return fmt.Errorf("failed to open file (name: %s): %w", file.Name, err)
+				}
+				defer rc.Close()
+
+				if len(outFiles) > 1 {
+					outFile, err = os.OpenFile(outFiles[idx], os.O_CREATE|os.O_WRONLY, 0644)
+					if err != nil {
+						return fmt.Errorf("failed to open file (name: %s): %w", outFiles[0], err)
+					}
+					defer outFile.Close()
+				}
+				if err := writeToFile(bufio.NewReader(rc), bufio.NewWriter(outFile), buildSeparator(cmd)); err != nil {
+					return fmt.Errorf("failed writing contents to file: %w", err)
+				}
+			}
+
+			return nil
+		},
+	}
+	cmd.PersistentFlags().StringSliceVarP(&inFiles, "file", "f", []string{}, "(required) names of the files/paths to extract (e.g. plan.txt, /path/to/plan.txt, /directory)")
+	cmd.PersistentFlags().StringSliceVarP(&outFiles, "out", "o", []string{}, "(optional) name(s) of the file(s) to write output to")
+	cmd.PersistentFlags().String("separator", "", "(optional) separator when combining the output of multiple files")
+	cmd.PersistentFlags().BoolVar(&all, "all", false, "(optional) whether to extract all files in the zip archive")
+	cmd.PersistentFlags().Bool("no-newlines", false, "(optional) omit the newlines appended to files")
+	return cmd
 }
 
-func init() {
-	rootCmd.AddCommand(extractCmd)
-	extractCmd.PersistentFlags().StringVarP(&key, "key", "k", "", "(required) name of the S3 key (object)")
-	extractCmd.PersistentFlags().StringVarP(&bucket, "bucket", "b", "", "(required) name of the S3 bucket")
-	extractCmd.PersistentFlags().StringSliceVarP(&outFiles, "out", "o", []string{}, "name(s) of the file(s) to write output to")
-	extractCmd.PersistentFlags().StringSliceVarP(&files, "file", "f", []string{}, "(required) names of the files/paths to extract (e.g. plan.txt, /path/to/plan.txt, /directory)")
+func validateExtractCommand(cmd *cobra.Command) error {
+	files, err := cmd.Flags().GetStringSlice("file")
+	if err != nil {
+		return fmt.Errorf("at least one file must be specified, or use the --all flag: %v", err)
+	}
+	outfiles, _ := cmd.Flags().GetStringSlice("out")
+	if len(outfiles) > 1 && (len(outfiles) != len(files)) {
+		return fmt.Errorf("one output file must be specified for each search term, or you may use a single output file")
+	}
+	return nil
+}
+
+func getFiles(cmd *cobra.Command, zip *zipspy.Client) []*reader.File {
+	all, _ := cmd.Flags().GetBool("all")
+	inFiles, _ := cmd.Flags().GetStringSlice("file")
+	if all {
+		return zip.AllFiles()
+	}
+	return zip.GetFiles(inFiles)
+}
+
+func writeToFile(r *bufio.Reader, w *bufio.Writer, separator string) error {
+	buf := make([]byte, 128)
+	for {
+		n, err := r.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		if _, err := w.Write(buf[:n]); err != nil {
+			return err
+		}
+	}
+	if _, err := w.WriteString(separator); err != nil {
+		return err
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildSeparator(cmd *cobra.Command) string {
+	separator, _ := cmd.Flags().GetString("separator")
+	noNewlines, _ := cmd.Flags().GetBool("no-newlines")
+	if noNewlines {
+		return separator
+	}
+	if separator == "" {
+		return "\n"
+	}
+	return "\n" + separator + "\n"
 }
