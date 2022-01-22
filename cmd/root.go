@@ -46,11 +46,12 @@ download a subset of files, search and retrieve files with regular expressions, 
 		}
 		return nil
 	}
-	cmd.PersistentFlags().BoolVar(&cfg.development, "development", false, "Whether or not to use development settings")
-	cmd.PersistentFlags().StringVar(&cfg.archiveLocation, "location", "", `Protocol and address of your ZIP archive ("file://archive.zip", "s3://<bucket_name>/archive.zip")`)
-	cmd.LocalFlags().StringVar(&verbosity, "verbosity", logrus.WarnLevel.String(), "Global log level (trace, debug, info, warn, error, fatal, panic")
+	cmd.PersistentFlags().BoolVar(&cfg.development, "development", false, "whether or not to use development settings")
+	cmd.PersistentFlags().StringVar(&cfg.archiveLocation, "location", "", `(required) protocol and address of your ZIP archive ("file://archive.zip", "s3://<bucket_name>/archive.zip")`)
+	cmd.LocalFlags().StringVar(&verbosity, "verbosity", logrus.WarnLevel.String(), "global log level (trace, debug, info, warn, error, fatal, panic)")
 	must(cmd.MarkPersistentFlagRequired("location"))
 
+	cmd.AddCommand(List())
 	cmd.AddCommand(Extract())
 
 	return cmd
