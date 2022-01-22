@@ -3,7 +3,6 @@ package cmd
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -70,8 +69,8 @@ If you specify more than one output, each file will be writen to the correspondi
 				if err != nil {
 					return fmt.Errorf("failed to open file (name: %s): %w", outFiles[0], err)
 				}
+				defer outFile.Close()
 			}
-			defer outFile.Close()
 			// TODO: parallelize with variable number of workers here
 			for idx, file := range files {
 				// Kind of hacky, but skip if directory
@@ -126,39 +125,4 @@ func getFiles(cmd *cobra.Command, zip *zipspy.Client) []*reader.File {
 		return zip.AllFiles()
 	}
 	return zip.GetFiles(inFiles)
-}
-
-func writeToFile(r *bufio.Reader, w *bufio.Writer, separator string) error {
-	buf := make([]byte, 128)
-	for {
-		n, err := r.Read(buf)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if n == 0 {
-			break
-		}
-		if _, err := w.Write(buf[:n]); err != nil {
-			return err
-		}
-	}
-	if _, err := w.WriteString(separator); err != nil {
-		return err
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func buildSeparator(cmd *cobra.Command) string {
-	separator, _ := cmd.Flags().GetString("separator")
-	noNewlines, _ := cmd.Flags().GetBool("no-newlines")
-	if noNewlines {
-		return separator
-	}
-	if separator == "" {
-		return "\n"
-	}
-	return "\n" + separator + "\n"
 }
