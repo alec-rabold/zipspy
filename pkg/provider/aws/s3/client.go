@@ -3,6 +3,7 @@ package s3
 import (
 	"fmt"
 	"io/ioutil"
+	"net/url"
 
 	"github.com/alec-rabold/zipspy/pkg/zipspy"
 	"github.com/aws/aws-sdk-go/aws"
@@ -28,15 +29,19 @@ type S3API interface {
 }
 
 // NewClient creates a new AWS S3 file reader.
-func NewClient(bucket, key string) *Client {
+func NewClient(location string) (zipspy.Reader, error) {
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	}))
-	return &Client{
-		bucket: bucket,
-		key:    key,
-		s3:     s3.New(sess),
+	endpoint, err := url.Parse(location)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse S3 URI: %w", err)
 	}
+	return &Client{
+		bucket: endpoint.Host,
+		key:    endpoint.Path,
+		s3:     s3.New(sess),
+	}, nil
 }
 
 // Size returns the size of the object.

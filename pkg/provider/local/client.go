@@ -15,8 +15,8 @@ type Client struct {
 }
 
 // NewClient creates a new local file reader.
-func NewClient(filePath string) *Client {
-	return &Client{filePath: filePath}
+func NewClient(filePath string) (zipspy.Reader, error) {
+	return &Client{filePath: filePath}, nil
 }
 
 // GetContentLength returns the size of and object's response body in bytes.

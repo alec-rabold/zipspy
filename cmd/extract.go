@@ -41,15 +41,17 @@ If you specify more than one output, each file will be writen to the correspondi
 	zipspy extract --location file://archive.zip -f file1.txt -o dest1.txt -f file2.txt -o dest2.txt -f file3.txt -o dest3.txt
 `,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			cmd.Parent().PersistentPreRunE(cmd.Parent(), args)
+			if err := cmd.Parent().PersistentPreRunE(cmd.Parent(), args); err != nil {
+				return fmt.Errorf("root pre-run failed: %v", err)
+			}
 			if err := validateExtractCommand(cmd); err != nil {
 				cmd.Usage()
-				return fmt.Errorf("validation failed: %w", err)
+				return fmt.Errorf("validation failed: %v", err)
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			zip, err := zipspy.NewClient(cfg.provider)
+			zip, err := zipspy.NewClient(cfg.zipReader)
 			if err != nil {
 				return fmt.Errorf("failed to create zipspy client: %v", err)
 			}
