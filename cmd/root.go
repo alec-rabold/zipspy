@@ -2,11 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"net/url"
 	"os"
-	"strings"
 
-	// "github.com/alec-rabold/zipspy/pkg/provider/aws/s3"
+	"github.com/alec-rabold/zipspy/pkg/provider"
 	"github.com/alec-rabold/zipspy/pkg/provider/aws/s3"
 	"github.com/alec-rabold/zipspy/pkg/provider/local"
 	"github.com/alec-rabold/zipspy/pkg/zipspy"
@@ -20,7 +18,7 @@ var cfg config
 type config struct {
 	development     bool
 	archiveLocation string
-	provider        zipspy.Reader
+	zipReader       zipspy.Reader
 }
 
 // Root returns the cobra.Command containing all child commands and sets global flags.
@@ -59,22 +57,18 @@ download a subset of files, search and retrieve files with regular expressions, 
 }
 
 func (c *config) initProvider() error {
-	if cfg.archiveLocation == "" {
+	if c.archiveLocation == "" {
 		return fmt.Errorf("location must not be empty")
 	}
-	switch {
-	case strings.HasPrefix(cfg.archiveLocation, "s3://"):
-		endpoint, err := url.Parse(c.archiveLocation)
-		if err != nil {
-			return fmt.Errorf("failed to parse S3 URI: %w", err)
-		}
-		c.provider = s3.NewClient(endpoint.Host, endpoint.Path)
-	case strings.HasPrefix(cfg.archiveLocation, "file://"):
-		filepath := strings.TrimPrefix(cfg.archiveLocation, "file://")
-		c.provider = local.NewClient(filepath)
-	default:
-		return fmt.Errorf("unsupported provider for location %s", cfg.archiveLocation)
+	r := provider.NewRegistry(
+		provider.WithProvider("s3", "s3://", s3.NewClient),
+		provider.WithProvider("local", "file://", local.NewClient),
+	)
+	zr, err := r.GetPlugin(c.archiveLocation)
+	if err != nil {
+		return fmt.Errorf("failed to get plugin for location %s: %w", c.archiveLocation, err)
 	}
+	c.zipReader = zr
 	return nil
 }
 

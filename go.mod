@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go v1.42.36
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.3.0
+	github.com/vektra/mockery/v2 v2.9.4
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616
 	golang.org/x/tools v0.1.8
 )
@@ -27,7 +28,6 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.10.0 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
-	github.com/vektra/mockery/v2 v2.9.4 // indirect
 	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5 // indirect
 	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/sys v0.0.0-20211210111614-af8b64212486 // indirect

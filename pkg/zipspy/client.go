@@ -20,12 +20,12 @@ type Client struct {
 }
 
 // NewClient creates a new top-level zipspy client.
-func NewClient(r Reader) (*Client, error) {
-	size, err := r.Size()
+func NewClient(p Reader) (*Client, error) {
+	size, err := p.Size()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get size: %w", err)
 	}
-	zr, err := reader.NewReader(r, size)
+	zr, err := reader.NewReader(p, size)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zip reader: %w", err)
 	}
